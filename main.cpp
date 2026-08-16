@@ -1,9 +1,29 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <unordered_map>
 using namespace std;
 
+unordered_map<string, streampos> index_;
+
+void buildIndex(){
+    ifstream file("data.db");
+    string line;
+    if(!file.is_open()){
+        cout<<"Error: could not open data.db"<<endl;
+        return;
+    }
+    streampos pos=file.tellg();
+    while(getline(file, line)){
+        int eq = line.find("=");
+        string k = line.substr(0, eq);
+        index_[k] = pos;
+        pos=file.tellg();
+    }
+    file.close();
+}
 void set(string key, string value){
+
     ofstream file("data.db", ios::app);
 
     if(!file.is_open()){
@@ -71,9 +91,16 @@ void deleteKey(string key){
 int main(){
     set("username","rahul123");
     set("age","20");
+
+    buildIndex();
+
+    cout << "Index for username: " << index_["username"] << endl;
+    cout << "Index for age: " << index_["age"] << endl;
+
     get("username");
     get("age");
     deleteKey("age");
     get("age");
+
     return 0;
 }
