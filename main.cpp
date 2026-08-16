@@ -7,6 +7,7 @@ using namespace std;
 unordered_map<string, streampos> index_;
 
 void buildIndex(){
+    index_.clear();
     ifstream file("data.db");
     string line;
     if(!file.is_open()){
@@ -22,6 +23,7 @@ void buildIndex(){
     }
     file.close();
 }
+
 void set(string key, string value){
 
     ofstream file("data.db", ios::app);
@@ -30,9 +32,16 @@ void set(string key, string value){
         cout<<"Error: could not open data.db"<<endl;
         return;
     }
+    streampos pos=file.tellp();
     file<<key<<"="<<value<<endl;
     file.close();
-    cout<<"Saved: "<<key<<" = "<<value<<endl;
+    index_[key]=pos;
+    if(value=="__Deleted__"){
+        cout<<"Deleted: "<<key<<endl;
+    }
+    else{
+        cout<<"Saved: "<<key<<" = "<<value<<endl;
+    }
 }
 
 void get(string key){
@@ -43,25 +52,23 @@ void get(string key){
         return;
     }
 
-    bool found = false;
-    string lastValue;
-
-    while(getline(file, line)){
-        int pos = line.find("=");
-        string k = line.substr(0, pos);
-        string v = line.substr(pos + 1);
-        if(k == key){
-            found = true;
-            lastValue = v;  
-        }
-    }
-    file.close();
-
-    if(found && lastValue != "__Deleted__"){
-        cout<<"Found: "<<key<<" = "<<lastValue<<endl;
-    } else {
+    if(index_.count(key)==0){
         cout<<"Not found: "<<key<<endl;
+        return;
     }
+    else{
+        streampos pos=index_[key];
+        file.seekg(pos);
+    }
+    getline(file, line);
+    int pos2 = line.find("=");
+    string v=line.substr(pos2 +1);
+    file.close();
+    if(v=="__Deleted__"){
+        cout<<"Not found: "<<key<<endl;
+        return;
+    }
+    cout<<"Found: "<<key<<" = "<<v<<endl;
 }
 
 void deleteKey(string key){
@@ -88,19 +95,48 @@ void deleteKey(string key){
     }
 }
 
-int main(){
-    set("username","rahul123");
-    set("age","20");
-
+void compact(){
+    ifstream file("data.db");
+    ofstream temp("temp.db",ios::app);
+    string line;
+    if(!file.is_open()){
+        cout<<"Error: could not open data.db"<<endl;
+        return;
+    }
+    for(auto& pair : index_) { 
+        string key = pair.first; 
+        streampos pos = pair.second;
+        file.seekg(pos);
+        getline(file, line);
+        int pos2 = line.find("=");
+        string v=line.substr(pos2 +1);
+        if(v!="__Deleted__"){
+            temp<<key<<"="<<v<<endl;
+        }
+    }
+    file.close();
+    temp.close();
+    remove("data.db");
+    rename("temp.db", "data.db");
     buildIndex();
+}
 
-    cout << "Index for username: " << index_["username"] << endl;
-    cout << "Index for age: " << index_["age"] << endl;
+int main(){
+    buildIndex();   
+
+    set("username", "rahul123");
+    set("age", "20");
+    set("age", "21");        
 
     get("username");
     get("age");
-    deleteKey("age");
-    get("age");
+
+    deleteKey("username");
+    get("username");         
+
+    compact();               
+
+    get("age");               
 
     return 0;
 }
