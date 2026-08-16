@@ -22,23 +22,58 @@ void get(string key){
         cout<<"Error: could not open data.db"<<endl;
         return;
     }
+
+    bool found = false;
+    string lastValue;
+
     while(getline(file, line)){
         int pos = line.find("=");
         string k = line.substr(0, pos);
         string v = line.substr(pos + 1);
         if(k == key){
-            cout<<"Found: "<<key<<" = "<<v<<endl;
-            file.close();
-            return;
+            found = true;
+            lastValue = v;  
         }
     }
-    cout<<"Not found: "<<key<<endl;
     file.close();
+
+    if(found && lastValue != "__Deleted__"){
+        cout<<"Found: "<<key<<" = "<<lastValue<<endl;
+    } else {
+        cout<<"Not found: "<<key<<endl;
+    }
 }
+
+void deleteKey(string key){
+    ifstream file("data.db");
+    string line;
+    bool found=false;
+    if(!file.is_open()){
+        cout<<"Error: could not open data.db"<<endl;
+        return;
+    }
+    while(getline(file, line)){
+        int pos = line.find("=");
+        string k = line.substr(0, pos);
+        if(k == key){
+            found=true;
+        }
+    }
+    file.close();
+    if(found){
+        set(key,"__Deleted__");
+    }
+    else{
+        cout<<"Not found: "<<key<<endl;
+    }
+}
+
 int main(){
     set("username","rahul123");
     set("age","20");
     get("username");
+    get("age");
+    deleteKey("age");
     get("age");
     return 0;
 }
