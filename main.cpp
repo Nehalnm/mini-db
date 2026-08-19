@@ -1,12 +1,19 @@
 #include <iostream>
+#include <shared_mutex>
 #include <fstream>
 #include <string>
 #include <unordered_map>
+#include <mutex>
+#include <thread>
+#include <vector>
+#include <chrono>
 using namespace std;
 
 unordered_map<string, streampos> index_;
+shared_mutex dbMutex;
 
 void buildIndex(){
+    unique_lock<shared_mutex> lock(dbMutex);
     index_.clear();
     ifstream file("data.db");
     string line;
@@ -24,12 +31,15 @@ void buildIndex(){
     file.close();
 }
 void set(string key, string value){
+    //cout<<"Thread "<<this_thread::get_id()<<" is setting "<<key<<" = "<<value<<endl;
+    unique_lock<shared_mutex> lock(dbMutex);
+    //this_thread::sleep_for(chrono::milliseconds(100));
 
     ofstream wal("wal.log");
     wal<<"SET "<<key<<" "<<value<<endl;
     wal.close();
-    ofstream file("data.db", ios::app);
 
+    ofstream file("data.db", ios::app);
     if(!file.is_open()){
         cout<<"Error: could not open data.db"<<endl;
         return;
@@ -50,6 +60,8 @@ void set(string key, string value){
     }
 }
 void get(string key){
+    shared_lock<shared_mutex> lock(dbMutex);
+
     ifstream file("data.db");
     string line;
     if(!file.is_open()){
@@ -76,6 +88,8 @@ void get(string key){
     cout<<"Found: "<<key<<" = "<<v<<endl;
 }
 void deleteKey(string key){
+    unique_lock<shared_mutex> lock(dbMutex);
+
     ifstream file("data.db");
     string line;
     bool found=false;
@@ -92,6 +106,7 @@ void deleteKey(string key){
     }
     file.close();
     if(found){
+        lock.unlock();
         set(key,"__Deleted__");
     }
     else{
@@ -99,6 +114,7 @@ void deleteKey(string key){
     }
 }
 void compact(){
+    unique_lock<shared_mutex> lock(dbMutex);
     ifstream file("data.db");
     ofstream temp("temp.db",ios::app);
     string line;
@@ -121,7 +137,17 @@ void compact(){
     temp.close();
     remove("data.db");
     rename("temp.db", "data.db");
-    buildIndex();
+    
+    index_.clear();
+    ifstream file2("data.db");
+    streampos pos2=file2.tellg();
+    while(getline(file2, line)){
+        int eq = line.find("=");
+        string k = line.substr(0, eq);
+        index_[k] = pos2;
+        pos2=file2.tellg();
+    }
+    file2.close();
 }
 
 void recoverFromWAL(){
@@ -147,7 +173,23 @@ int main(){
     recoverFromWAL();
     buildIndex();
 
-    set("age", "20");
+    vector<thread> threads;
+
+    threads.push_back(thread(set, "key1", "value1"));
+    threads.push_back(thread(set, "key2", "value2"));
+    threads.push_back(thread(set, "key3", "value3"));
+    threads.push_back(thread(set, "key4", "value4"));
+    threads.push_back(thread(set, "key5", "value5"));
+
+    for(auto& t : threads){
+        t.join();
+    }
+    cout<<"All threads completed."<<endl;
+    get("key1");
+    get("key2");    
+    get("key3");
+    get("key4");
+    get("key5");
 
     return 0;
 }
