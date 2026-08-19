@@ -23,9 +23,11 @@ void buildIndex(){
     }
     file.close();
 }
-
 void set(string key, string value){
 
+    ofstream wal("wal.log");
+    wal<<"SET "<<key<<" "<<value<<endl;
+    wal.close();
     ofstream file("data.db", ios::app);
 
     if(!file.is_open()){
@@ -36,6 +38,10 @@ void set(string key, string value){
     file<<key<<"="<<value<<endl;
     file.close();
     index_[key]=pos;
+
+    wal.open("wal.log");
+    wal.close();
+
     if(value=="__Deleted__"){
         cout<<"Deleted: "<<key<<endl;
     }
@@ -43,7 +49,6 @@ void set(string key, string value){
         cout<<"Saved: "<<key<<" = "<<value<<endl;
     }
 }
-
 void get(string key){
     ifstream file("data.db");
     string line;
@@ -70,7 +75,6 @@ void get(string key){
     }
     cout<<"Found: "<<key<<" = "<<v<<endl;
 }
-
 void deleteKey(string key){
     ifstream file("data.db");
     string line;
@@ -94,7 +98,6 @@ void deleteKey(string key){
         cout<<"Not found: "<<key<<endl;
     }
 }
-
 void compact(){
     ifstream file("data.db");
     ofstream temp("temp.db",ios::app);
@@ -121,22 +124,30 @@ void compact(){
     buildIndex();
 }
 
+void recoverFromWAL(){
+    ifstream wal("wal.log");
+    string line;
+    if(!wal.is_open()){
+        cout<<"Error: could not open wal.log"<<endl;
+        return;
+    }
+    getline(wal, line);
+    wal.close();
+    if(line.empty()){
+        return;
+    }
+    string restOfLine = line.substr(4);
+    int pos = restOfLine.find(" ");
+    string k = restOfLine.substr(0, pos);
+    string v = restOfLine.substr(pos + 1);
+    set(k, v);
+}
+
 int main(){
-    buildIndex();   
+    recoverFromWAL();
+    buildIndex();
 
-    set("username", "rahul123");
     set("age", "20");
-    set("age", "21");        
-
-    get("username");
-    get("age");
-
-    deleteKey("username");
-    get("username");         
-
-    compact();               
-
-    get("age");               
 
     return 0;
 }
