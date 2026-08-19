@@ -7,6 +7,10 @@
 #include <thread>
 #include <vector>
 #include <chrono>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+#include <cstring>
 using namespace std;
 
 unordered_map<string, streampos> index_;
@@ -30,10 +34,8 @@ void buildIndex(){
     }
     file.close();
 }
-void set(string key, string value){
-    //cout<<"Thread "<<this_thread::get_id()<<" is setting "<<key<<" = "<<value<<endl;
+string set(string key, string value){
     unique_lock<shared_mutex> lock(dbMutex);
-    //this_thread::sleep_for(chrono::milliseconds(100));
 
     ofstream wal("wal.log");
     wal<<"SET "<<key<<" "<<value<<endl;
@@ -41,8 +43,7 @@ void set(string key, string value){
 
     ofstream file("data.db", ios::app);
     if(!file.is_open()){
-        cout<<"Error: could not open data.db"<<endl;
-        return;
+        return "Error: could not open data.db";
     }
     streampos pos=file.tellp();
     file<<key<<"="<<value<<endl;
@@ -53,25 +54,23 @@ void set(string key, string value){
     wal.close();
 
     if(value=="__Deleted__"){
-        cout<<"Deleted: "<<key<<endl;
+        return "Deleted: " + key;
     }
     else{
-        cout<<"Saved: "<<key<<" = "<<value<<endl;
+        return "Saved: " + key + " = " + value;
     }
 }
-void get(string key){
+string get(string key){
     shared_lock<shared_mutex> lock(dbMutex);
 
     ifstream file("data.db");
     string line;
     if(!file.is_open()){
-        cout<<"Error: could not open data.db"<<endl;
-        return;
+        return "Error: could not open data.db";
     }
 
     if(index_.count(key)==0){
-        cout<<"Not found: "<<key<<endl;
-        return;
+        return "Not found: " + key;
     }
     else{
         streampos pos=index_[key];
@@ -82,20 +81,18 @@ void get(string key){
     string v=line.substr(pos2 +1);
     file.close();
     if(v=="__Deleted__"){
-        cout<<"Not found: "<<key<<endl;
-        return;
+        return "Not found: " + key;
     }
-    cout<<"Found: "<<key<<" = "<<v<<endl;
+    return "Found: " + key + " = " + v;
 }
-void deleteKey(string key){
+string deleteKey(string key){
     unique_lock<shared_mutex> lock(dbMutex);
 
     ifstream file("data.db");
     string line;
     bool found=false;
     if(!file.is_open()){
-        cout<<"Error: could not open data.db"<<endl;
-        return;
+        return "Error: could not open data.db";
     }
     while(getline(file, line)){
         int pos = line.find("=");
@@ -107,10 +104,10 @@ void deleteKey(string key){
     file.close();
     if(found){
         lock.unlock();
-        set(key,"__Deleted__");
+        return set(key,"__Deleted__");
     }
     else{
-        cout<<"Not found: "<<key<<endl;
+        return "Not found: " + key;
     }
 }
 void compact(){
@@ -119,7 +116,7 @@ void compact(){
     ofstream temp("temp.db",ios::app);
     string line;
     if(!file.is_open()){
-        cout<<"Error: could not open data.db"<<endl;
+        cout<<"No data.db found - starting fresh"<<endl;
         return;
     }
     for(auto& pair : index_) { 
@@ -149,12 +146,11 @@ void compact(){
     }
     file2.close();
 }
-
 void recoverFromWAL(){
     ifstream wal("wal.log");
     string line;
     if(!wal.is_open()){
-        cout<<"Error: could not open wal.log"<<endl;
+        cout<<"No wal.log found - starting fresh"<<endl;
         return;
     }
     getline(wal, line);
@@ -168,28 +164,82 @@ void recoverFromWAL(){
     string v = restOfLine.substr(pos + 1);
     set(k, v);
 }
+void handleClient(int clientSocket){
+    char buffer[1024] = {0};
+        read(clientSocket, buffer, 1024);
+        string command(buffer);
 
+        if(!command.empty() && command[command.length() - 1] == '\n'){
+            command = command.substr(0, command.length() - 1);
+        }
+
+        string response;
+
+        if(command.substr(0, 4) == "GET "){
+            string key = command.substr(4);
+            response = get(key);
+        }
+        else if(command.substr(0, 4) == "SET "){
+            string rest = command.substr(4);
+            int spacePos = rest.find(" ");
+            string key = rest.substr(0, spacePos);
+            string value = rest.substr(spacePos + 1);
+            response = set(key, value);
+        }
+        else if(command.substr(0, 7) == "DELETE "){
+            string key = command.substr(7);
+            response = deleteKey(key);
+        }
+        else{
+            response = "Unknown command";
+        }
+
+        response += "\n";
+        send(clientSocket, response.c_str(), response.length(), 0);
+        close(clientSocket);
+}
+void runServer(){
+    int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if(serverSocket == -1){
+        cout << "Error: could not create socket" << endl;
+        return;
+    }
+
+    sockaddr_in serverAddr;
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
+    serverAddr.sin_port = htons(9999);
+
+    if(bind(serverSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) < 0){
+        cout << "Error: bind failed" << endl;
+        return;
+    }
+
+    listen(serverSocket, 5);
+    cout << "Server listening on port 9999..." << endl;
+
+    while(true){
+        int clientSocket = accept(serverSocket, nullptr, nullptr);
+        if(clientSocket < 0){
+            continue;
+        }
+        thread(handleClient, clientSocket).detach();
+    }
+}
+void autoCompact(){
+    while(true){
+        this_thread::sleep_for(chrono::seconds(300)); 
+        compact();
+        cout << "Auto-compaction ran." << endl;
+    }
+}
 int main(){
     recoverFromWAL();
     buildIndex();
 
-    vector<thread> threads;
+    thread(autoCompact).detach();
 
-    threads.push_back(thread(set, "key1", "value1"));
-    threads.push_back(thread(set, "key2", "value2"));
-    threads.push_back(thread(set, "key3", "value3"));
-    threads.push_back(thread(set, "key4", "value4"));
-    threads.push_back(thread(set, "key5", "value5"));
-
-    for(auto& t : threads){
-        t.join();
-    }
-    cout<<"All threads completed."<<endl;
-    get("key1");
-    get("key2");    
-    get("key3");
-    get("key4");
-    get("key5");
+    runServer();
 
     return 0;
 }
