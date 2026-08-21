@@ -16,6 +16,7 @@ using namespace std;
 unordered_map<string, streampos> index_;
 shared_mutex dbMutex;
 ofstream dataFile("data.db", ios::app);
+ofstream walFile("wal.log", ios::app);
 
 void checkDataFile(){
     if(!dataFile.is_open()){
@@ -43,17 +44,13 @@ void buildIndex(){
 string set(string key, string value){
     unique_lock<shared_mutex> lock(dbMutex);
 
-    ofstream wal("wal.log");
-    wal<<"SET "<<key<<" "<<value<<endl;
-    wal.close();
+    walFile << "SET " << key << " " << value << endl;
+    walFile.flush();   
 
     streampos pos=dataFile.tellp();
     dataFile<<key<<"="<<value<<endl;
     dataFile.flush();
     index_[key] = pos;
-
-    wal.open("wal.log");
-    wal.close();
 
     if(value=="__Deleted__"){
         return "Deleted: " + key;
@@ -155,12 +152,15 @@ void recoverFromWAL(){
         cout<<"No wal.log found - starting fresh"<<endl;
         return;
     }
-    getline(wal, line);
+    string lastLine;
+    while(getline(wal, line)){
+        lastLine = line;
+    }
     wal.close();
-    if(line.empty()){
+    if(lastLine.empty()){
         return;
     }
-    string restOfLine = line.substr(4);
+    string restOfLine = lastLine.substr(4);
     int pos = restOfLine.find(" ");
     string k = restOfLine.substr(0, pos);
     string v = restOfLine.substr(pos + 1);
@@ -251,6 +251,12 @@ int main(){
     buildIndex();
 
     benchmarkSet();
+
+    cout << "--- Correctness check ---" << endl;
+    cout << get("key0") << endl;
+    cout << get("key49999") << endl;
+    cout << get("key99999") << endl;
+    cout << get("nonexistent") << endl;
 
     return 0;
 }
