@@ -62,7 +62,7 @@ string set(string key, string value){
 string get(string key){
     shared_lock<shared_mutex> lock(dbMutex);
 
-    ifstream file("data.db");
+    thread_local ifstream file("data.db");
     string line;
     if(!file.is_open()){
         return "Error: could not open data.db";
@@ -78,7 +78,7 @@ string get(string key){
     getline(file, line);
     int pos2 = line.find("=");
     string v=line.substr(pos2 +1);
-    file.close();
+
     if(v=="__Deleted__"){
         return "Not found: " + key;
     }
@@ -266,14 +266,28 @@ void benchmarkSet(){
     cout << "Benchmark SET: " << duration.count() << " seconds" << endl;
     cout << "Operations per second: " << 100000 / duration.count() << endl;
 }
+void benchmarkGet(){
+    auto start = chrono::high_resolution_clock::now();
+    for(int i=0; i<100000; i++){
+        get("key" + to_string(i));
+    }
+    auto end = chrono::high_resolution_clock::now();
+    chrono::duration<double> duration = end - start;
+    cout << "Benchmark GET: " << duration.count() << " seconds" << endl;
+    cout << "Operations per second: " << 100000 / duration.count() << endl;
+}
 int main(){
     checkDataFile();
     recoverFromWAL();
     buildIndex();
 
-    thread(autoCompact).detach();
+    benchmarkSet();
+    benchmarkGet();
 
-    runServer();
+    cout << "--- Correctness check ---" << endl;
+    cout << get("key0") << endl;
+    cout << get("key99999") << endl;
+    cout << get("nonexistent") << endl;
 
     return 0;
 }
