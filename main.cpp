@@ -166,6 +166,25 @@ void recoverFromWAL(){
     string v = restOfLine.substr(pos + 1);
     set(k, v);
 }
+void compactWAL(){
+    unique_lock<shared_mutex> lock(dbMutex);
+
+    ifstream wal("wal.log");
+    string line, lastLine;
+    while(getline(wal, line)){
+        lastLine = line;
+    }
+    wal.close();
+
+    walFile.close();
+    walFile.open("wal.log");   
+    if(!lastLine.empty()){
+        walFile << lastLine << endl;
+        walFile.flush();
+    }
+    walFile.close();
+    walFile.open("wal.log", ios::app);  
+}
 void handleClient(int clientSocket){
     char buffer[1024] = {0};
         read(clientSocket, buffer, 1024);
@@ -230,11 +249,13 @@ void runServer(){
 }
 void autoCompact(){
     while(true){
-        this_thread::sleep_for(chrono::seconds(300)); 
+        this_thread::sleep_for(chrono::seconds(10)); 
         compact();
-        cout << "Auto-compaction ran." << endl;
+        compactWAL();
+        cout << "Auto-compaction ran (data and WAL)." << endl;
     }
 }
+
 void benchmarkSet(){
     auto start = chrono::high_resolution_clock::now();
     for(int i=0; i<100000; i++){
@@ -250,13 +271,9 @@ int main(){
     recoverFromWAL();
     buildIndex();
 
-    benchmarkSet();
+    thread(autoCompact).detach();
 
-    cout << "--- Correctness check ---" << endl;
-    cout << get("key0") << endl;
-    cout << get("key49999") << endl;
-    cout << get("key99999") << endl;
-    cout << get("nonexistent") << endl;
+    runServer();
 
     return 0;
 }
