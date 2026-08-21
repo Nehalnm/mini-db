@@ -15,7 +15,13 @@ using namespace std;
 
 unordered_map<string, streampos> index_;
 shared_mutex dbMutex;
+ofstream dataFile("data.db", ios::app);
 
+void checkDataFile(){
+    if(!dataFile.is_open()){
+        cout << "Error: could not open data.db" << endl;
+    }
+}
 void buildIndex(){
     unique_lock<shared_mutex> lock(dbMutex);
     index_.clear();
@@ -41,14 +47,10 @@ string set(string key, string value){
     wal<<"SET "<<key<<" "<<value<<endl;
     wal.close();
 
-    ofstream file("data.db", ios::app);
-    if(!file.is_open()){
-        return "Error: could not open data.db";
-    }
-    streampos pos=file.tellp();
-    file<<key<<"="<<value<<endl;
-    file.close();
-    index_[key]=pos;
+    streampos pos=dataFile.tellp();
+    dataFile<<key<<"="<<value<<endl;
+    dataFile.flush();
+    index_[key] = pos;
 
     wal.open("wal.log");
     wal.close();
@@ -233,13 +235,22 @@ void autoCompact(){
         cout << "Auto-compaction ran." << endl;
     }
 }
+void benchmarkSet(){
+    auto start = chrono::high_resolution_clock::now();
+    for(int i=0; i<100000; i++){
+        set("key" + to_string(i), "value" + to_string(i));
+    }
+    auto end = chrono::high_resolution_clock::now();
+    chrono::duration<double> duration = end - start;
+    cout << "Benchmark SET: " << duration.count() << " seconds" << endl;
+    cout << "Operations per second: " << 100000 / duration.count() << endl;
+}
 int main(){
+    checkDataFile();
     recoverFromWAL();
     buildIndex();
 
-    thread(autoCompact).detach();
-
-    runServer();
+    benchmarkSet();
 
     return 0;
 }
